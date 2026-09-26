@@ -17,6 +17,8 @@ type CreateColorProof struct {
 	EffectiveAt time.Time `json:"effectiveAt" binding:"required"`
 	Evidence    string    `json:"evidence" binding:"max=2000"`
 	RelatedCode string    `json:"relatedCode" binding:"max=64"`
+	// PrintRunID identifies the batch whose configuration is being measured.
+	PrintRunID uint `json:"printRunId" binding:"required"`
 }
 
 type UpdateColorProof struct {

@@ -17,6 +17,10 @@ type CreateReleaseDecision struct {
 	EffectiveAt time.Time `json:"effectiveAt" binding:"required"`
 	Evidence    string    `json:"evidence" binding:"max=2000"`
 	RelatedCode string    `json:"relatedCode" binding:"max=64"`
+	// PrintRunID is the batch under release; ProofIDs are the accepted proofs
+	// of its current configuration version that back the decision.
+	PrintRunID uint   `json:"printRunId" binding:"required"`
+	ProofIDs   []uint `json:"proofIds" binding:"required,min=1,dive,required"`
 }
 
 type UpdateReleaseDecision struct {
@@ -32,4 +36,7 @@ type UpdateReleaseDecision struct {
 	EffectiveAt     time.Time `json:"effectiveAt" binding:"required"`
 	Evidence        string    `json:"evidence" binding:"max=2000"`
 	RelatedCode     string    `json:"relatedCode" binding:"max=64"`
+	// ProofIDs reselects the accepted proofs backing the next decision
+	// revision. The run itself cannot be changed after creation.
+	ProofIDs []uint `json:"proofIds" binding:"required,min=1,dive,required"`
 }

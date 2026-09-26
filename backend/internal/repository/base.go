@@ -111,3 +111,13 @@ func normalizePage(page, pageSize int) (int, int) {
 	}
 	return page, pageSize
 }
+
+// searchWildcard lower-cases and wraps a search term in SQL wildcards,
+// returning "" when there is nothing to search for.
+func searchWildcard(search string) string {
+	search = strings.TrimSpace(strings.ToLower(search))
+	if search == "" {
+		return ""
+	}
+	return "%" + search + "%"
+}

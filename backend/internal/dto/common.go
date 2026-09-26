@@ -7,6 +7,10 @@ type PageQuery struct {
 	PageSize int    `form:"pageSize"`
 	Search   string `form:"search"`
 	Status   string `form:"status"`
+	RunID    uint   `form:"runId"`
+	// EligibleOnly restricts proof listings to accepted proofs of a run's
+	// current configuration version, i.e. the proofs usable for release.
+	EligibleOnly bool `form:"eligibleOnly"`
 }
 
 type LoginRequest struct {

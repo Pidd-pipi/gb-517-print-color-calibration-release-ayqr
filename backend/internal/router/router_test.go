@@ -40,7 +40,66 @@ func TestRBACAndImmutableRevisionFlows(t *testing.T) {
 	if status, _ := perform(t, engine, http.MethodPost, "/api/release", tokens["viewer"], "viewer-create", payload); status != http.StatusForbidden {
 		t.Fatalf("viewer create status = %d, want 403", status)
 	}
-	status, body := perform(t, engine, http.MethodPost, "/api/release", tokens["operator"], "decision-create", payload)
+
+	// A release decision must belong to a run and select accepted proofs of
+	// the run's current configuration version. Build that evidence first.
+	decisionRunPayload := recordPayload("PR-DECISION-001", "放行目标色彩配置")
+	status, body := perform(t, engine, http.MethodPost, "/api/runs", tokens["operator"], "decision-run-create", decisionRunPayload)
+	decisionRun := decodeData[struct {
+		ID      uint `json:"id"`
+		Version uint `json:"version"`
+	}](t, body)
+	if status != http.StatusCreated {
+		t.Fatalf("create decision run status = %d body=%s", status, body)
+	}
+	proofPayload := recordPayload("CP-DECISION-001", "放行目标校样")
+	proofPayload["printRunId"] = decisionRun.ID
+	status, body = perform(t, engine, http.MethodPost, "/api/proofs", tokens["operator"], "decision-proof-create", proofPayload)
+	if status != http.StatusCreated {
+		t.Fatalf("create decision proof status = %d body=%s", status, body)
+	}
+	decisionProof := decodeData[struct {
+		ID      uint `json:"id"`
+		Version uint `json:"version"`
+	}](t, body)
+	for _, step := range []struct {
+		status  string
+		reason  string
+		token   string
+		request string
+	}{
+		{"review", "measurement capture completed", tokens["operator"], "decision-proof-review"},
+		{"accepted", "colour tolerance independently verified", tokens["reviewer"], "decision-proof-accept"},
+	} {
+		transition := map[string]any{"status": step.status, "expectedVersion": decisionProof.Version, "reason": step.reason}
+		status, body = perform(t, engine, http.MethodPost, "/api/proofs/"+uintString(decisionProof.ID)+"/transition", step.token, step.request, transition)
+		if status != http.StatusOK {
+			t.Fatalf("proof transition to %s status = %d body=%s", step.status, status, body)
+		}
+		decisionProof.Version = decodeData[struct {
+			Version uint `json:"version"`
+		}](t, body).Version
+	}
+	status, body = perform(t, engine, http.MethodGet, "/api/proofs/"+uintString(decisionProof.ID), tokens["reviewer"], "decision-proof-read", nil)
+	acceptedProof := decodeData[struct {
+		Stale             bool    `json:"stale"`
+		PinnedRunCode     string  `json:"pinnedRunCode"`
+		PinnedRunVersion  uint    `json:"pinnedRunVersion"`
+		PinnedMetricValue float64 `json:"pinnedMetricValue"`
+	}](t, body)
+	if status != http.StatusOK || acceptedProof.Stale || acceptedProof.PinnedRunCode != "PR-DECISION-001" || acceptedProof.PinnedRunVersion != 1 || acceptedProof.PinnedMetricValue != 2.1 {
+		t.Fatalf("accepted proof pinning mismatch: status=%d %+v", status, acceptedProof)
+	}
+	// An accepted proof is pinned evidence and cannot be edited anymore.
+	proofUpdate := recordPayload("ignored", "试图覆盖已接收读数")
+	proofUpdate["expectedVersion"] = decisionProof.Version
+	if status, _ := perform(t, engine, http.MethodPut, "/api/proofs/"+uintString(decisionProof.ID), tokens["operator"], "accepted-proof-update", proofUpdate); status != http.StatusConflict {
+		t.Fatalf("accepted proof update status = %d, want 409", status)
+	}
+
+	payload["printRunId"] = decisionRun.ID
+	payload["proofIds"] = []uint{decisionProof.ID}
+	status, body = perform(t, engine, http.MethodPost, "/api/release", tokens["operator"], "decision-create", payload)
 	if status != http.StatusCreated {
 		t.Fatalf("operator create decision status = %d body=%s", status, body)
 	}
@@ -61,20 +120,53 @@ func TestRBACAndImmutableRevisionFlows(t *testing.T) {
 	detail := decodeData[struct {
 		Version   uint `json:"version"`
 		Revisions []struct {
-			Version   uint   `json:"version"`
-			RequestID string `json:"requestId"`
+			Version        uint   `json:"version"`
+			RequestID      string `json:"requestId"`
+			ProofSnapshots []struct {
+				ProofCode         string  `json:"proofCode"`
+				PinnedRunVersion  uint    `json:"pinnedRunVersion"`
+				PinnedMetricValue float64 `json:"pinnedMetricValue"`
+				Stale             bool    `json:"stale"`
+			} `json:"proofSnapshots"`
 		} `json:"revisions"`
 	}](t, body)
 	if status != http.StatusOK || detail.Version != 2 || len(detail.Revisions) != 2 || detail.Revisions[0].RequestID != "reviewer-release" {
 		t.Fatalf("unexpected decision revision chain: status=%d detail=%+v", status, detail)
 	}
+	if snapshots := detail.Revisions[0].ProofSnapshots; len(snapshots) != 1 || snapshots[0].ProofCode != "CP-DECISION-001" ||
+		snapshots[0].PinnedRunVersion != 1 || snapshots[0].PinnedMetricValue != 2.1 || snapshots[0].Stale {
+		t.Fatalf("release revision must keep the eligible proof snapshot: %+v", snapshots)
+	}
 	update := recordPayload("ignored", "不得覆盖的决定")
 	update["expectedVersion"] = detail.Version
+	update["printRunId"] = decisionRun.ID
+	update["proofIds"] = []uint{decisionProof.ID}
 	if status, _ := perform(t, engine, http.MethodPut, "/api/release/"+uintString(decision.ID), tokens["operator"], "locked-update", update); status != http.StatusConflict {
 		t.Fatalf("resolved decision update status = %d, want 409", status)
 	}
 	if status, _ := perform(t, engine, http.MethodDelete, "/api/release/"+uintString(decision.ID), tokens["admin"], "locked-delete", nil); status != http.StatusConflict {
 		t.Fatalf("resolved decision delete status = %d, want 409", status)
+	}
+
+	// After the run configuration is revised, the old accepted proof becomes
+	// stale and a second decision may not select it for release.
+	runUpdate := recordPayload("ignored", "改版后的色彩配置")
+	runUpdate["expectedVersion"] = decisionRun.Version
+	if status, _ := perform(t, engine, http.MethodPut, "/api/runs/"+uintString(decisionRun.ID), tokens["operator"], "decision-run-revise", runUpdate); status != http.StatusOK {
+		t.Fatalf("revise decision run status = %d, want 200", status)
+	}
+	status, body = perform(t, engine, http.MethodGet, "/api/proofs/"+uintString(decisionProof.ID), tokens["reviewer"], "stale-proof-read", nil)
+	staleProof := decodeData[struct {
+		Stale bool `json:"stale"`
+	}](t, body)
+	if status != http.StatusOK || !staleProof.Stale {
+		t.Fatalf("proof must be stale after run revision: status=%d %+v", status, staleProof)
+	}
+	stalePayload := recordPayload("RD-TEST-STALE", "旧校样不得放行")
+	stalePayload["printRunId"] = decisionRun.ID
+	stalePayload["proofIds"] = []uint{decisionProof.ID}
+	if status, _ := perform(t, engine, http.MethodPost, "/api/release", tokens["reviewer"], "stale-decision-create", stalePayload); status != http.StatusUnprocessableEntity {
+		t.Fatalf("release decision with stale proof status = %d, want 422", status)
 	}
 
 	runPayload := recordPayload("PR-TEST-001", "测试色彩配置")

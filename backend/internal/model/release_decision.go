@@ -5,6 +5,10 @@ import "time"
 // ReleaseDecision models 放行决定 as an independently versioned aggregate. The fields
 // cover ownership, operational context, evidence and measured risk so later
 // changes naturally span persistence, service and UI layers.
+//
+// A decision always belongs to one PrintRun. Every revision snapshots the
+// proofs that backed the decision via ReleaseDecisionProof, so later batch
+// configuration changes or proof edits cannot alter the historical record.
 type ReleaseDecision struct {
 	BaseModel
 	Facility    string                    `json:"facility" gorm:"size:120;index"`
@@ -16,6 +20,7 @@ type ReleaseDecision struct {
 	EffectiveAt time.Time                 `json:"effectiveAt"`
 	Evidence    string                    `json:"evidence" gorm:"size:2000"`
 	RelatedCode string                    `json:"relatedCode" gorm:"size:64;index"`
+	PrintRunID  uint                      `json:"printRunId" gorm:"index;not null"`
 	Revisions   []ReleaseDecisionRevision `json:"revisions,omitempty" gorm:"foreignKey:ReleaseDecisionID"`
 }
 
@@ -27,19 +32,44 @@ var ReleaseDecisionInitialStatus = "draft"
 
 // ReleaseDecisionRevision preserves every decision and its evidence as an
 // immutable approval record, including who made it and which request did so.
+// The embedded proof snapshots are what the reviewer actually relied on.
 type ReleaseDecisionRevision struct {
+	ID                uint                   `json:"id" gorm:"primaryKey"`
+	ReleaseDecisionID uint                   `json:"releaseDecisionId" gorm:"not null;uniqueIndex:idx_release_decision_revision"`
+	Version           uint                   `json:"version" gorm:"not null;uniqueIndex:idx_release_decision_revision"`
+	Status            string                 `json:"status" gorm:"size:40;not null"`
+	Name              string                 `json:"name" gorm:"size:160;not null"`
+	RiskLevel         string                 `json:"riskLevel" gorm:"size:32"`
+	MetricValue       float64                `json:"metricValue"`
+	MetricUnit        string                 `json:"metricUnit" gorm:"size:24"`
+	Evidence          string                 `json:"evidence" gorm:"size:2000"`
+	RelatedCode       string                 `json:"relatedCode" gorm:"size:64"`
+	Actor             string                 `json:"actor" gorm:"size:80;not null"`
+	RequestID         string                 `json:"requestId" gorm:"size:80;not null"`
+	Reason            string                 `json:"reason" gorm:"size:500;not null"`
+	CreatedAt         time.Time              `json:"createdAt"`
+	ProofSnapshots    []ReleaseDecisionProof `json:"proofSnapshots,omitempty" gorm:"foreignKey:RevisionID"`
+}
+
+// ReleaseDecisionProof is an immutable snapshot of one accepted ColorProof as
+// it existed when a decision revision was written. It intentionally duplicates
+// the proof values instead of referencing the live row, so batch/proof edits
+// never change what a historical decision was based on.
+type ReleaseDecisionProof struct {
 	ID                uint      `json:"id" gorm:"primaryKey"`
-	ReleaseDecisionID uint      `json:"releaseDecisionId" gorm:"not null;uniqueIndex:idx_release_decision_revision"`
-	Version           uint      `json:"version" gorm:"not null;uniqueIndex:idx_release_decision_revision"`
-	Status            string    `json:"status" gorm:"size:40;not null"`
-	Name              string    `json:"name" gorm:"size:160;not null"`
-	RiskLevel         string    `json:"riskLevel" gorm:"size:32"`
-	MetricValue       float64   `json:"metricValue"`
-	MetricUnit        string    `json:"metricUnit" gorm:"size:24"`
+	RevisionID        uint      `json:"revisionId" gorm:"not null;index:idx_release_decision_proof"`
+	ProofID           uint      `json:"proofId" gorm:"not null;index:idx_release_decision_proof"`
+	ProofCode         string    `json:"proofCode" gorm:"size:64;not null"`
+	ProofName         string    `json:"proofName" gorm:"size:160;not null"`
+	ProofStatus       string    `json:"proofStatus" gorm:"size:40;not null"`
+	PinnedRunCode     string    `json:"pinnedRunCode" gorm:"size:64;not null"`
+	PinnedRunVersion  uint      `json:"pinnedRunVersion"`
+	PinnedMetricValue float64   `json:"pinnedMetricValue"`
+	PinnedMetricUnit  string    `json:"pinnedMetricUnit" gorm:"size:24"`
 	Evidence          string    `json:"evidence" gorm:"size:2000"`
-	RelatedCode       string    `json:"relatedCode" gorm:"size:64"`
-	Actor             string    `json:"actor" gorm:"size:80;not null"`
-	RequestID         string    `json:"requestId" gorm:"size:80;not null"`
-	Reason            string    `json:"reason" gorm:"size:500;not null"`
+	PinnedAt          time.Time `json:"pinnedAt"`
 	CreatedAt         time.Time `json:"createdAt"`
+	// Stale is derived at read time against the linked run's current version;
+	// historical snapshots stay intact regardless of the flag.
+	Stale bool `json:"stale" gorm:"-"`
 }

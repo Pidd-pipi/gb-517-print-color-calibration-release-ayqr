@@ -1,4 +1,21 @@
 
+export interface ProofSnapshot {
+  id: number;
+  revisionId: number;
+  proofId: number;
+  proofCode: string;
+  proofName: string;
+  proofStatus: string;
+  pinnedRunCode: string;
+  pinnedRunVersion: number;
+  pinnedMetricValue: number;
+  pinnedMetricUnit: string;
+  evidence: string;
+  pinnedAt: string;
+  createdAt: string;
+  stale: boolean;
+}
+
 export interface DomainRecord {
   id: number;
   code: string;
@@ -18,11 +35,21 @@ export interface DomainRecord {
   createdAt: string;
   updatedAt: string;
   revisions?: RevisionRecord[];
+  // 校样：测量批次与接收时固定的批次编码/版本/读数快照。
+  printRunId?: number;
+  pinnedRunCode?: string;
+  pinnedRunVersion?: number;
+  pinnedMetricValue?: number;
+  pinnedMetricUnit?: string;
+  pinnedAt?: string;
+  pinnedBy?: string;
+  stale?: boolean;
 }
 
 export interface RevisionRecord {
   id: number; version: number; status: string; name: string; metricValue: number;
   metricUnit: string; evidence: string; actor: string; requestId: string; reason: string; createdAt: string;
+  proofSnapshots?: ProofSnapshot[];
 }
 
 export interface PageMeta { page: number; pageSize: number; total: number }

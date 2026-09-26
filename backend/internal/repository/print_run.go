@@ -12,6 +12,7 @@ import (
 type PrintRunRepository interface {
 	List(context.Context, dto.PageQuery) (Page[model.PrintRun], error)
 	Get(context.Context, uint) (model.PrintRun, error)
+	ListByIDs(ctx context.Context, ids []uint) ([]model.PrintRun, error)
 	CreateVersioned(context.Context, *model.PrintRun, string, string, string) error
 	UpdateVersioned(context.Context, uint, uint, *model.PrintRun, string, string, string) error
 	Delete(context.Context, uint) error
@@ -35,6 +36,17 @@ func (r *printRunRepository) Get(ctx context.Context, id uint) (model.PrintRun, 
 		Preload("Revisions", func(db *gorm.DB) *gorm.DB { return db.Order("version DESC") }).
 		First(&item, id).Error
 	return item, err
+}
+
+// ListByIDs returns the requested runs without preloading revisions, used when
+// services only need the current code/version (e.g. proof staleness checks).
+func (r *printRunRepository) ListByIDs(ctx context.Context, ids []uint) ([]model.PrintRun, error) {
+	items := make([]model.PrintRun, 0, len(ids))
+	if len(ids) == 0 {
+		return items, nil
+	}
+	err := r.store.db.WithContext(ctx).Where("id IN ?", ids).Find(&items).Error
+	return items, err
 }
 func (r *printRunRepository) CreateVersioned(ctx context.Context, item *model.PrintRun, actor, requestID, reason string) error {
 	return r.store.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {

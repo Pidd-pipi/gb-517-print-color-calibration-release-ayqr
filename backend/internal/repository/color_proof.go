@@ -12,6 +12,7 @@ import (
 type ColorProofRepository interface {
 	List(context.Context, dto.PageQuery) (Page[model.ColorProof], error)
 	Get(context.Context, uint) (model.ColorProof, error)
+	ListByIDs(ctx context.Context, ids []uint) ([]model.ColorProof, error)
 	Create(context.Context, *model.ColorProof) error
 	Update(context.Context, uint, uint, *model.ColorProof) error
 	Delete(context.Context, uint) error
@@ -27,11 +28,40 @@ func NewColorProofRepository(db *gorm.DB) ColorProofRepository {
 }
 
 func (r *colorProofRepository) List(ctx context.Context, q dto.PageQuery) (Page[model.ColorProof], error) {
-	return r.store.List(ctx, q)
+	page, pageSize := normalizePage(q.Page, q.PageSize)
+	db := r.store.db.WithContext(ctx).Model(&model.ColorProof{})
+	if search := searchWildcard(q.Search); search != "" {
+		db = db.Where("LOWER(code) LIKE ? OR LOWER(name) LIKE ?", search, search)
+	}
+	if status := q.Status; status != "" {
+		db = db.Where("status = ?", status)
+	}
+	if q.RunID != 0 {
+		db = db.Where("print_run_id = ?", q.RunID)
+	}
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return Page[model.ColorProof]{}, err
+	}
+	items := make([]model.ColorProof, 0)
+	err := db.Order("updated_at DESC, id DESC").
+		Offset((page - 1) * pageSize).Limit(pageSize).Find(&items).Error
+	return Page[model.ColorProof]{Items: items, Total: total, Page: page, PageSize: pageSize}, err
 }
+
 func (r *colorProofRepository) Get(ctx context.Context, id uint) (model.ColorProof, error) {
 	return r.store.Get(ctx, id)
 }
+
+func (r *colorProofRepository) ListByIDs(ctx context.Context, ids []uint) ([]model.ColorProof, error) {
+	items := make([]model.ColorProof, 0, len(ids))
+	if len(ids) == 0 {
+		return items, nil
+	}
+	err := r.store.db.WithContext(ctx).Where("id IN ?", ids).Find(&items).Error
+	return items, err
+}
+
 func (r *colorProofRepository) Create(ctx context.Context, item *model.ColorProof) error {
 	return r.store.Create(ctx, item)
 }

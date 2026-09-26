@@ -22,6 +22,7 @@ docker compose config --quiet
 ```
 
 - 路由集成测试覆盖 viewer 写入 403、operator 放行 403、reviewer 放行成功、已决记录更新 409，以及色彩配置/放行决定两条不可变修订链。
+- 校样固定链路：校样必须携带 `printRunId`；接收后固定批次编码/版本/读数且再编辑返回 409；批次配置改版后旧校样 `stale=true`、不能用于新建放行（422），历史放行修订中原样保留校样快照并仅在展示层标记失效。
 - 非测试 Go 代码为 38 个文件、3143 行，符合提示词的 26-38 文件与 2700-3900 行范围。
 
 ## 空卷 Compose 与 API
@@ -33,9 +34,11 @@ docker compose config --quiet
 - `/healthz`、前端首页、session、runtime、overview 和四组实体列表正常。
 - 创建设备并推进状态后，审计总数和迁移计数同步增加。
 - viewer 对写接口和审计接口均得到 403。
-- operator 可采集校样并提交 review，但接收校样得到 403；reviewer 接收成功。
-- operator 创建 draft 决定后直接 release 得到 403；reviewer 放行成功并生成 v2。
-- 决定详情返回 v2/v1 两条修订，操作者分别为 reviewer/operator，请求 ID 分别为 `release-review-smoke`、`release-create-smoke`。
+- operator 可采集挂在具体批次下的校样并提交 review，但接收校样得到 403；reviewer 接收成功并固定批次编码/版本/读数。
+- 放行候选接口 `/api/proofs?runId=...&eligibleOnly=true` 仅返回批次当前版本下已接收、未失效的校样。
+- operator 创建 draft 决定（必须选择当前版本校样）后直接 release 得到 403；reviewer 放行成功并生成 v2。
+- 批次配置改版到 v2 后，旧校样 `stale=true`、候选列表清空、用旧校样新建放行返回 422；已放行的历史决定快照原样保留、仅标记 stale。
+- 决定详情返回 v2/v1 两条修订，操作者分别为 reviewer/operator，请求 ID 分别为 `release-review-smoke`、`release-create-smoke`，修订内嵌所选校样快照。
 
 ## 内置 Browser
 

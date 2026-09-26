@@ -23,6 +23,11 @@ func handleError(c *gin.Context, err error) {
 		util.Fail(c, http.StatusForbidden, "forbidden", err.Error())
 	case errors.Is(err, service.ErrLocked):
 		util.Fail(c, http.StatusConflict, "record_locked", err.Error())
+	case errors.Is(err, service.ErrProofAccepted):
+		util.Fail(c, http.StatusConflict, "proof_pinned", err.Error())
+	case errors.Is(err, service.ErrProofNotAccepted), errors.Is(err, service.ErrProofStale),
+		errors.Is(err, service.ErrProofWrongRun), errors.Is(err, service.ErrDecisionNoProof):
+		util.Fail(c, http.StatusUnprocessableEntity, "proof_not_eligible", err.Error())
 	default:
 		_ = c.Error(err)
 		util.Fail(c, http.StatusInternalServerError, "internal_error", "request could not be completed")
