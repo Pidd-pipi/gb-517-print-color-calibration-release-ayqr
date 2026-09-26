@@ -16,6 +16,18 @@ type ColorProof struct {
 	EffectiveAt time.Time `json:"effectiveAt"`
 	Evidence    string    `json:"evidence" gorm:"size:2000"`
 	RelatedCode string    `json:"relatedCode" gorm:"size:64;index"`
+	// Acceptance snapshot: the moment a reviewer accepts the proof, the batch
+	// identity and the verified readings are pinned so later configuration
+	// revisions or proof edits can never rewrite what was accepted.
+	RunCode       string     `json:"runCode" gorm:"size:64;index"`
+	RunVersion    uint       `json:"runVersion"`
+	AcceptedValue float64    `json:"acceptedValue"`
+	AcceptedUnit  string     `json:"acceptedUnit" gorm:"size:24"`
+	AcceptedAt    *time.Time `json:"acceptedAt,omitempty"`
+	AcceptedBy    string     `json:"acceptedBy" gorm:"size:80"`
+	// Stale is computed on read: an accepted proof whose pinned batch version
+	// no longer matches the batch's current version is invalidated.
+	Stale bool `json:"stale" gorm:"-"`
 }
 
 func (item *ColorProof) GetBase() *BaseModel { return &item.BaseModel }

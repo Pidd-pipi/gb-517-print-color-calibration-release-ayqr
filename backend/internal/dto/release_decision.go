@@ -3,7 +3,9 @@ package dto
 import "time"
 
 // CreateReleaseDecision is the public write contract for 放行决定. Status is deliberately
-// omitted so callers cannot bypass the service state machine.
+// omitted so callers cannot bypass the service state machine. ProofID optionally
+// attaches an accepted colour proof; the service validates it against the batch
+// and stores an immutable snapshot.
 type CreateReleaseDecision struct {
 	Code        string    `json:"code" binding:"required,min=2,max=64"`
 	Name        string    `json:"name" binding:"required,min=2,max=160"`
@@ -17,6 +19,7 @@ type CreateReleaseDecision struct {
 	EffectiveAt time.Time `json:"effectiveAt" binding:"required"`
 	Evidence    string    `json:"evidence" binding:"max=2000"`
 	RelatedCode string    `json:"relatedCode" binding:"max=64"`
+	ProofID     uint      `json:"proofId"`
 }
 
 type UpdateReleaseDecision struct {
@@ -32,4 +35,5 @@ type UpdateReleaseDecision struct {
 	EffectiveAt     time.Time `json:"effectiveAt" binding:"required"`
 	Evidence        string    `json:"evidence" binding:"max=2000"`
 	RelatedCode     string    `json:"relatedCode" binding:"max=64"`
+	ProofID         uint      `json:"proofId"`
 }

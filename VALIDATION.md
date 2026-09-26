@@ -22,6 +22,7 @@ docker compose config --quiet
 ```
 
 - 路由集成测试覆盖 viewer 写入 403、operator 放行 403、reviewer 放行成功、已决记录更新 409，以及色彩配置/放行决定两条不可变修订链。
+- 校样接收集成测试覆盖：接收时固定批次编码/批次版本/读数，配置改版后校样 `stale=true`，失效校样创建决定与放行均 422，重新接收后固定新版本并可放行，事后改校样读数不改写决定快照。
 - 非测试 Go 代码为 38 个文件、3143 行，符合提示词的 26-38 文件与 2700-3900 行范围。
 
 ## 空卷 Compose 与 API
@@ -33,9 +34,10 @@ docker compose config --quiet
 - `/healthz`、前端首页、session、runtime、overview 和四组实体列表正常。
 - 创建设备并推进状态后，审计总数和迁移计数同步增加。
 - viewer 对写接口和审计接口均得到 403。
-- operator 可采集校样并提交 review，但接收校样得到 403；reviewer 接收成功。
-- operator 创建 draft 决定后直接 release 得到 403；reviewer 放行成功并生成 v2。
+- operator 可采集校样并提交 review，但接收校样得到 403；reviewer 接收成功，响应固定批次编码、批次版本 v1 与接收读数。
+- operator 创建 draft 决定后直接 release 得到 403；reviewer 携带已接收校样放行成功并生成 v2，决定与两条修订均保留校样快照。
 - 决定详情返回 v2/v1 两条修订，操作者分别为 reviewer/operator，请求 ID 分别为 `release-review-smoke`、`release-create-smoke`。
+- 批次配置改版后该校样 `stale=true`，用失效校样创建决定得到 422；重新接收后校样固定到新批次版本，可再次选入决定。
 
 ## 内置 Browser
 

@@ -24,19 +24,62 @@ type ColorProofService interface {
 
 type colorProofService struct {
 	repository repository.ColorProofRepository
+	runs       repository.PrintRunRepository
 	security   SecurityService
 }
 
-func NewColorProofService(repo repository.ColorProofRepository, security SecurityService) ColorProofService {
-	return &colorProofService{repository: repo, security: security}
+func NewColorProofService(repo repository.ColorProofRepository, runs repository.PrintRunRepository, security SecurityService) ColorProofService {
+	return &colorProofService{repository: repo, runs: runs, security: security}
 }
 
 func (s *colorProofService) List(ctx context.Context, query dto.PageQuery) (repository.Page[model.ColorProof], error) {
-	return s.repository.List(ctx, query)
+	page, err := s.repository.List(ctx, query)
+	if err != nil {
+		return page, err
+	}
+	return page, s.markStale(ctx, page.Items)
 }
 
 func (s *colorProofService) Get(ctx context.Context, id uint) (model.ColorProof, error) {
-	return s.repository.Get(ctx, id)
+	item, err := s.repository.Get(ctx, id)
+	if err != nil {
+		return item, err
+	}
+	items := []model.ColorProof{item}
+	if err := s.markStale(ctx, items); err != nil {
+		return item, err
+	}
+	return items[0], nil
+}
+
+// markStale flags accepted proofs whose pinned batch version no longer matches
+// the batch's current head version, i.e. proofs invalidated by a later
+// configuration revision. The flag is computed on read and never persisted.
+func (s *colorProofService) markStale(ctx context.Context, items []model.ColorProof) error {
+	codes := make([]string, 0, len(items))
+	seen := make(map[string]bool)
+	for _, item := range items {
+		if item.Status == "accepted" && item.RunCode != "" && !seen[item.RunCode] {
+			seen[item.RunCode] = true
+			codes = append(codes, item.RunCode)
+		}
+	}
+	runs, err := s.runs.ListByCodes(ctx, codes)
+	if err != nil {
+		return err
+	}
+	versions := make(map[string]uint, len(runs))
+	for _, run := range runs {
+		versions[run.Code] = run.Version
+	}
+	for i := range items {
+		if items[i].Status != "accepted" {
+			continue
+		}
+		current, ok := versions[items[i].RunCode]
+		items[i].Stale = !ok || current != items[i].RunVersion
+	}
+	return nil
 }
 
 func (s *colorProofService) Create(ctx context.Context, input dto.CreateColorProof, actor, requestID string) (model.ColorProof, error) {
@@ -86,7 +129,7 @@ func (s *colorProofService) Update(ctx context.Context, id uint, input dto.Updat
 		return model.ColorProof{}, fmt.Errorf("update 色彩校样: %w", err)
 	}
 	_ = s.security.Audit(ctx, actor, requestID, "update", "ColorProof", id, current.Status, current.Status, "updated business fields")
-	return s.repository.Get(ctx, id)
+	return s.Get(ctx, id)
 }
 
 func (s *colorProofService) Transition(ctx context.Context, id uint, input dto.TransitionRequest, actor, role, requestID string) (model.ColorProof, error) {
@@ -101,6 +144,22 @@ func (s *colorProofService) Transition(ctx context.Context, id uint, input dto.T
 	if !constants.CanTransition(constants.ColorProofTransitions, current.Status, target) {
 		return model.ColorProof{}, fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, current.Status, target)
 	}
+	if target == "accepted" {
+		// Pin the batch identity and the verified readings at acceptance time.
+		// Later configuration revisions bump the batch version and thereby
+		// invalidate this proof instead of silently rewriting its basis.
+		run, err := s.runs.GetByCode(ctx, current.RelatedCode)
+		if err != nil {
+			return model.ColorProof{}, fmt.Errorf("%w: 关联批次 %s 不存在，无法接收校样", ErrInvalidInput, current.RelatedCode)
+		}
+		now := time.Now().UTC()
+		current.RunCode = run.Code
+		current.RunVersion = run.Version
+		current.AcceptedValue = current.MetricValue
+		current.AcceptedUnit = current.MetricUnit
+		current.AcceptedAt = &now
+		current.AcceptedBy = actor
+	}
 	before := current.Status
 	current.Status = target
 	current.Version = input.ExpectedVersion + 1
@@ -111,7 +170,7 @@ func (s *colorProofService) Transition(ctx context.Context, id uint, input dto.T
 	if err := s.security.Audit(ctx, actor, requestID, "transition", "ColorProof", id, before, target, input.Reason); err != nil {
 		return model.ColorProof{}, fmt.Errorf("persist transition audit: %w", err)
 	}
-	return s.repository.Get(ctx, id)
+	return s.Get(ctx, id)
 }
 
 func (s *colorProofService) Delete(ctx context.Context, id uint, actor, requestID string) error {

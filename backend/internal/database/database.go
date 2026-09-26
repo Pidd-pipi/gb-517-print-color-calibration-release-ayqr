@@ -197,6 +197,7 @@ func seedColorProof(ctx context.Context, db *gorm.DB) error {
 		return err
 	}
 	now := time.Now().UTC()
+	seedAcceptedAt := now.Add(-1 * time.Hour)
 	items := []model.ColorProof{
 
 		{BaseModel: model.BaseModel{Code: "CP-001", Name: "色彩校样示例一", Status: "captured", Version: 1,
@@ -212,7 +213,9 @@ func seedColorProof(ctx context.Context, db *gorm.DB) error {
 		{BaseModel: model.BaseModel{Code: "CP-003", Name: "色彩校样示例三", Status: "accepted", Version: 1,
 			Description: "用于启动验证和主要流程演示的色彩校样记录"}, Facility: "印刷色彩批次校准放行区域3", Owner: "安全主管组",
 			Category: "复核", RiskLevel: "high", MetricValue: 37.5, MetricUnit: "score",
-			EffectiveAt: now.Add(6 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "REL-517-03"},
+			EffectiveAt: now.Add(6 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "PR-003",
+			RunCode: "PR-003", RunVersion: 1, AcceptedValue: 37.5, AcceptedUnit: "score",
+			AcceptedAt: &seedAcceptedAt, AcceptedBy: "seed"},
 	}
 	return db.WithContext(ctx).Create(&items).Error
 }
@@ -223,6 +226,10 @@ func seedReleaseDecision(ctx context.Context, db *gorm.DB) error {
 		return err
 	}
 	now := time.Now().UTC()
+	// The released demo decision carries the immutable snapshot of the accepted
+	// proof it relied on, mirroring what the service writes at selection time.
+	var acceptedProof model.ColorProof
+	proofErr := db.WithContext(ctx).Where("code = ?", "CP-003").First(&acceptedProof).Error
 	items := []model.ReleaseDecision{
 
 		{BaseModel: model.BaseModel{Code: "RD-001", Name: "放行决定示例一", Status: "draft", Version: 1,
@@ -233,12 +240,21 @@ func seedReleaseDecision(ctx context.Context, db *gorm.DB) error {
 		{BaseModel: model.BaseModel{Code: "RD-002", Name: "放行决定示例二", Status: "release", Version: 1,
 			Description: "用于启动验证和主要流程演示的放行决定记录"}, Facility: "印刷色彩批次校准放行区域2", Owner: "质量复核组",
 			Category: "重点", RiskLevel: "medium", MetricValue: 25.0, MetricUnit: "%",
-			EffectiveAt: now.Add(3 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "REL-517-02"},
+			EffectiveAt: now.Add(3 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "PR-003"},
 
 		{BaseModel: model.BaseModel{Code: "RD-003", Name: "放行决定示例三", Status: "rework", Version: 1,
 			Description: "用于启动验证和主要流程演示的放行决定记录"}, Facility: "印刷色彩批次校准放行区域3", Owner: "安全主管组",
 			Category: "复核", RiskLevel: "high", MetricValue: 37.5, MetricUnit: "score",
 			EffectiveAt: now.Add(6 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "REL-517-03"},
+	}
+	if proofErr == nil {
+		items[1].ProofID = acceptedProof.ID
+		items[1].ProofCode = acceptedProof.Code
+		items[1].ProofVersion = acceptedProof.Version
+		items[1].ProofRunCode = acceptedProof.RunCode
+		items[1].ProofRunVersion = acceptedProof.RunVersion
+		items[1].ProofValue = acceptedProof.AcceptedValue
+		items[1].ProofUnit = acceptedProof.AcceptedUnit
 	}
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Omit("Revisions").Create(&items).Error; err != nil {
@@ -250,6 +266,9 @@ func seedReleaseDecision(ctx context.Context, db *gorm.DB) error {
 				ReleaseDecisionID: item.ID, Version: item.Version, Status: item.Status, Name: item.Name,
 				RiskLevel: item.RiskLevel, MetricValue: item.MetricValue, MetricUnit: item.MetricUnit,
 				Evidence: item.Evidence, RelatedCode: item.RelatedCode,
+				ProofID: item.ProofID, ProofCode: item.ProofCode, ProofVersion: item.ProofVersion,
+				ProofRunCode: item.ProofRunCode, ProofRunVersion: item.ProofRunVersion,
+				ProofValue: item.ProofValue, ProofUnit: item.ProofUnit,
 				Actor: "seed", RequestID: "startup-seed", Reason: "initial release decision",
 			})
 		}

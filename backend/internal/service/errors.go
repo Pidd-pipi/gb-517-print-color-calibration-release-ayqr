@@ -9,4 +9,5 @@ var (
 	ErrInactiveUser      = errors.New("user account is inactive")
 	ErrForbidden         = errors.New("role is not permitted for this operation")
 	ErrLocked            = errors.New("resolved record is immutable")
+	ErrProofNotUsable    = errors.New("selected proof is not accepted under the batch's current version")
 )

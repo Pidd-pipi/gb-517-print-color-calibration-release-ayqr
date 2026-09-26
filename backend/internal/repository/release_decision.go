@@ -63,6 +63,9 @@ func releaseDecisionRevision(item *model.ReleaseDecision, actor, requestID, reas
 		ReleaseDecisionID: item.ID, Version: item.Version, Status: item.Status, Name: item.Name,
 		RiskLevel: item.RiskLevel, MetricValue: item.MetricValue, MetricUnit: item.MetricUnit,
 		Evidence: item.Evidence, RelatedCode: item.RelatedCode,
+		ProofID: item.ProofID, ProofCode: item.ProofCode, ProofVersion: item.ProofVersion,
+		ProofRunCode: item.ProofRunCode, ProofRunVersion: item.ProofRunVersion,
+		ProofValue: item.ProofValue, ProofUnit: item.ProofUnit,
 		Actor: actor, RequestID: requestID, Reason: reason,
 	}
 }
